@@ -134,11 +134,28 @@ impl Lattice {
         }
     }
 
+    #[inline]
+    fn prefetch_for_insert<T>(vec: &mut Vec<Vec<T>>, index: usize) {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            use std::arch::x86_64::{_mm_prefetch, _MM_HINT_ET0};
+            // vectors are prefilled
+            let x = vec.get_unchecked(index);
+            // this is always safe per documentation of add
+            let addr = x.as_ptr().add(x.len());
+            // this function is declared as unsafe, but does only memory-preloading side effects
+            _mm_prefetch::<_MM_HINT_ET0>(addr as *const i8);
+        }
+    }
+
     /// Insert a single node in the lattice, founding the path to the previous node
     /// Assumption: lattice for all previous boundaries is already constructed
     pub fn insert(&mut self, node: Node, conn: &ConnectionMatrix) -> i32 {
-        let (idx, cost) = self.connect_node(&node, conn);
         let end_idx = node.end();
+        Self::prefetch_for_insert(&mut self.ends, end_idx);
+        Self::prefetch_for_insert(&mut self.indices, end_idx);
+        Self::prefetch_for_insert(&mut self.ends_full, end_idx);
+        let (idx, cost) = self.connect_node(&node, conn);
         self.ends[end_idx].push(VNode::new(node.right_id(), cost));
         self.indices[end_idx].push(idx);
         self.ends_full[end_idx].push(node);
